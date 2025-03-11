@@ -7,12 +7,15 @@ import io
 import json
 from datetime import datetime
 import os
+import time
 import google.generativeai as genai
 
-# Gemini API の設定（Streamlit Secrets からキーを取得）
+# --- Gemini API の設定 ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+# モデルの初期化（例: gemini-pro）
+model = genai.GenerativeModel('gemini-pro')
 
-# ----- リクエストカウンタの永続化処理 -----
+# --- リクエストカウンタの永続化 ---
 REQUEST_COUNT_FILE = "request_count.json"
 REQUEST_LIMIT = 9800
 
@@ -36,36 +39,27 @@ def save_request_count(data):
     with open(REQUEST_COUNT_FILE, "w") as f:
         json.dump(data, f)
 
-# ----- ファイルアップロード・エンコーディング検出 -----
+# --- ファイルアップロード時のエンコーディング検出 ---
 def detect_encoding(file_bytes):
-    """アップロードされたファイルのエンコーディングを検出"""
     result = chardet.detect(file_bytes[:100000])
     return result['encoding']
 
-# ----- Gemini API による住所補正 -----
-def correct_address_with_gemini(address):
-    """
-    Gemini API を利用して住所を正確な住所フォーマットに補正する関数
-    """
+# --- Gemini API による住所補正 ---
+def correct_address_with_gemini(model, address):
     prompt = f"以下の住所を正確な住所フォーマットに修正してください: {address}"
     try:
-        response = genai.generate_text(
-            model="models/gemini-2.0-flash", 
-            prompt=prompt
-        )
+        response = model.generate_content(prompt)
         corrected = response.text.strip() if response and hasattr(response, "text") else ""
         return corrected if corrected else address
+    except genai.types.generation_types.GenerateContentError as e:
+        st.error(f"Gemini API 補正エラー: {e.message}")
+        return address
     except Exception as e:
         st.error(f"Gemini API 補正エラー: {e}")
         return address
 
-# ----- Gemini API による座標精度向上 -----
-def refine_coordinate_with_gemini(original_address, corrected_address, current_lat, current_lng):
-    """
-    Gemini API を利用して、与えられた住所情報と現在のジオコーディング結果から、
-    より正確な緯度経度を提案する関数。
-    出力は JSON 形式（例: {"lat": 35.6895, "lng": 139.6917}）で返すように指示する。
-    """
+# --- Gemini API による座標精度向上 ---
+def refine_coordinates(model, original_address, corrected_address, current_lat, current_lng):
     prompt = (
         "以下の情報に基づいて、より正確な緯度と経度をJSON形式で返してください。\n"
         f"・元の住所: {original_address}\n"
@@ -74,10 +68,7 @@ def refine_coordinate_with_gemini(original_address, corrected_address, current_l
         "出力は以下の形式にしてください: {\"lat\": 数値, \"lng\": 数値}"
     )
     try:
-        response = genai.generate_text(
-            model="models/gemini-2.0-flash",
-            prompt=prompt
-        )
+        response = model.generate_content(prompt)
         text = response.text.strip() if response and hasattr(response, "text") else ""
         refined = json.loads(text)
         if "lat" in refined and "lng" in refined:
@@ -85,18 +76,25 @@ def refine_coordinate_with_gemini(original_address, corrected_address, current_l
         else:
             st.warning("Gemini からの応答に期待するキーがありません。")
             return current_lat, current_lng
+    except genai.types.generation_types.GenerateContentError as e:
+        st.error(f"Gemini API 座標精度向上エラー: {e.message}")
+        return current_lat, current_lng
     except Exception as e:
-        st.error(f"Geminiによる座標精度向上処理でエラー: {e}")
+        st.error(f"Gemini API 座標精度向上エラー: {e}")
         return current_lat, current_lng
 
-# ----- ジオコーディング実行 -----
+# --- Google Maps API を用いたジオコーディング ---
+def geocode_address(gmaps, address):
+    try:
+        result = gmaps.geocode(address, components={'country': 'JP'})
+        return result
+    except ApiError as e:
+        st.error(f"Google Maps API エラー: {e}")
+        return None
+
+# --- メインジオコーディング処理 ---
 def perform_geocoding(df):
-    """
-    DataFrame 内の各住所に対して、Gemini で住所補正および座標精度向上を行い、
-    Google Maps API を用いてジオコーディングを実行する。
-    月間のリクエスト上限（9800件）を超えないよう、ローカルファイルで管理する。
-    """
-    # Google Maps API クライアントの初期化（Streamlit Secrets からキーを取得）
+    # Google Maps API クライアントの初期化
     gmaps = googlemaps.Client(key=st.secrets["GOOGLE_MAPS_API_KEY"])
     df['latitude'] = None
     df['longitude'] = None
@@ -106,39 +104,53 @@ def perform_geocoding(df):
     counter_data = load_request_count()
     monthly_count = counter_data["count"]
 
+    # 成功/失敗のカウントと処理時間計測
+    success_count = 0
+    fail_count = 0
+    start_time = time.time()
+
     for index, row in df.iterrows():
         if monthly_count >= REQUEST_LIMIT:
             st.warning("月間ジオコーディングリクエスト上限（9800件）に達しました。")
             break
-        try:
-            original_address = row['address']
-            corrected_address = correct_address_with_gemini(original_address)
-            status_text.text(f"処理中: {original_address} → {corrected_address}")
-            geocode_result = gmaps.geocode(corrected_address, components={'country': 'JP'})
-            monthly_count += 1
-            counter_data["count"] = monthly_count
-            save_request_count(counter_data)
-            if geocode_result:
-                rooftop_results = [result for result in geocode_result if result['geometry']['location_type'] == 'ROOFTOP']
-                if rooftop_results:
-                    location = rooftop_results[0]['geometry']['location']
-                else:
-                    location = geocode_result[0]['geometry']['location']
-                current_lat = location['lat']
-                current_lng = location['lng']
-                refined_lat, refined_lng = refine_coordinate_with_gemini(original_address, corrected_address, current_lat, current_lng)
-                df.at[index, 'latitude'] = refined_lat
-                df.at[index, 'longitude'] = refined_lng
+
+        original_address = row['address']
+        corrected_address = correct_address_with_gemini(model, original_address)
+        status_text.text(f"処理中: {index+1}/{total} 件 - {original_address} → {corrected_address}")
+
+        geocode_result = geocode_address(gmaps, corrected_address)
+        monthly_count += 1
+        counter_data["count"] = monthly_count
+        save_request_count(counter_data)
+
+        if geocode_result:
+            rooftop_results = [result for result in geocode_result if result['geometry']['location_type'] == 'ROOFTOP']
+            if rooftop_results:
+                location = rooftop_results[0]['geometry']['location']
             else:
-                st.warning(f"住所 '{corrected_address}' のジオコーディング結果が見つかりませんでした。")
-        except (ApiError, HTTPError, Timeout, TransportError) as e:
-            st.error(f"Error at row {index}: {e}")
+                location = geocode_result[0]['geometry']['location']
+            current_lat = location['lat']
+            current_lng = location['lng']
+            refined_lat, refined_lng = refine_coordinates(model, original_address, corrected_address, current_lat, current_lng)
+            df.at[index, 'latitude'] = refined_lat
+            df.at[index, 'longitude'] = refined_lng
+            success_count += 1
+        else:
+            fail_count += 1
+
         progress_bar.progress((index + 1) / total)
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+
     status_text.text("処理完了")
+    st.write(f"処理時間: {elapsed_time:.2f}秒")
+    st.write(f"成功件数: {success_count}件")
+    st.write(f"失敗件数: {fail_count}件")
     st.write(f"現在の月間リクエスト総数: {monthly_count}件")
     return df
 
-# ----- メイン処理 -----
+# --- メイン処理 ---
 def main():
     st.title("ジオコーディングアプリケーション")
     st.markdown("**Google Maps API** と **Gemini API** を組み合わせた住所補正・ジオコーディングアプリです。")
