@@ -9,26 +9,7 @@ from datetime import datetime
 import os
 import google.generativeai as genai
 
-# カスタムCSSでUIのスタイルを改善（背景色、フォントなど）
-st.markdown(
-    """
-    <style>
-    .main {
-        background-color: #f9f9f9;
-        font-family: 'Segoe UI', sans-serif;
-    }
-    .sidebar .sidebar-content {
-        background-image: linear-gradient(#2e7bcf, #2e7bcf);
-        color: white;
-    }
-    .stProgress > div > div > div > div {
-        background-color: #2e7bcf;
-    }
-    </style>
-    """, unsafe_allow_html=True
-)
-
-# Gemini APIの設定（Streamlit Secretsからキーを取得）
+# Gemini API の設定（Streamlit Secrets からキーを取得）
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
 # ----- リクエストカウンタの永続化処理 -----
@@ -61,54 +42,48 @@ def detect_encoding(file_bytes):
     result = chardet.detect(file_bytes[:100000])
     return result['encoding']
 
-# ----- Gemini APIによる住所補正 -----
+# ----- Gemini API による住所補正 -----
 def correct_address_with_gemini(address):
     """
-    Gemini APIを利用して住所を正確な住所フォーマットに補正する関数
+    Gemini API を利用して住所を正確な住所フォーマットに補正する関数
     """
     prompt = f"以下の住所を正確な住所フォーマットに修正してください: {address}"
     try:
-        response = genai.models.generate_content(
-            model="gemini-2.0-flash", 
-            contents=prompt
+        response = genai.generate_text(
+            model="models/gemini-2.0-flash", 
+            prompt=prompt
         )
-        if hasattr(response, "text"):
-            corrected = response.text.strip()
-        else:
-            corrected = response.get("text", "").strip()
+        corrected = response.text.strip() if response and hasattr(response, "text") else ""
         return corrected if corrected else address
     except Exception as e:
         st.error(f"Gemini API 補正エラー: {e}")
         return address
 
-# ----- Gemini APIによる座標精度向上 -----
+# ----- Gemini API による座標精度向上 -----
 def refine_coordinate_with_gemini(original_address, corrected_address, current_lat, current_lng):
     """
-    Gemini APIを利用して、与えられた住所情報と現在のジオコーディング結果から、
+    Gemini API を利用して、与えられた住所情報と現在のジオコーディング結果から、
     より正確な緯度経度を提案する関数。
-    出力はJSON形式で、例: {"lat": 35.6895, "lng": 139.6917} とするように指示する。
+    出力は JSON 形式（例: {"lat": 35.6895, "lng": 139.6917}）で返すように指示する。
     """
     prompt = (
         "以下の情報に基づいて、より正確な緯度と経度をJSON形式で返してください。\n"
         f"・元の住所: {original_address}\n"
         f"・Geminiで補正した住所: {corrected_address}\n"
         f"・現在の結果: 緯度 {current_lat}, 経度 {current_lng}\n"
-        "出力は以下のようにしてください: {\"lat\": 数値, \"lng\": 数値}"
+        "出力は以下の形式にしてください: {\"lat\": 数値, \"lng\": 数値}"
     )
     try:
-        response = genai.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
+        response = genai.generate_text(
+            model="models/gemini-2.0-flash",
+            prompt=prompt
         )
-        if hasattr(response, "text"):
-            text = response.text.strip()
-        else:
-            text = response.get("text", "").strip()
+        text = response.text.strip() if response and hasattr(response, "text") else ""
         refined = json.loads(text)
         if "lat" in refined and "lng" in refined:
             return refined["lat"], refined["lng"]
         else:
-            st.warning("Geminiからの応答に期待するキーがありません。")
+            st.warning("Gemini からの応答に期待するキーがありません。")
             return current_lat, current_lng
     except Exception as e:
         st.error(f"Geminiによる座標精度向上処理でエラー: {e}")
@@ -117,10 +92,11 @@ def refine_coordinate_with_gemini(original_address, corrected_address, current_l
 # ----- ジオコーディング実行 -----
 def perform_geocoding(df):
     """
-    DataFrame内の各住所に対して、Geminiで住所補正および座標精度向上を行い、
-    Google Maps APIを用いてジオコーディングを実行する。
+    DataFrame 内の各住所に対して、Gemini で住所補正および座標精度向上を行い、
+    Google Maps API を用いてジオコーディングを実行する。
     月間のリクエスト上限（9800件）を超えないよう、ローカルファイルで管理する。
     """
+    # Google Maps API クライアントの初期化（Streamlit Secrets からキーを取得）
     gmaps = googlemaps.Client(key=st.secrets["GOOGLE_MAPS_API_KEY"])
     df['latitude'] = None
     df['longitude'] = None
@@ -165,14 +141,14 @@ def perform_geocoding(df):
 # ----- メイン処理 -----
 def main():
     st.title("ジオコーディングアプリケーション")
-    st.markdown("**Google Maps API**と**Gemini API**を組み合わせた住所補正・ジオコーディングアプリです。")
+    st.markdown("**Google Maps API** と **Gemini API** を組み合わせた住所補正・ジオコーディングアプリです。")
     st.sidebar.title("使い方・設定")
     st.sidebar.info(
         """
-        1. **CSVファイル**をアップロードしてください。（必ず **address** カラムが必要です）  
-        2. **ジオコーディング開始**ボタンを押すと、処理が実行されます。  
+        1. **CSVファイル** をアップロードしてください。（必ず **address** カラムが必要です）  
+        2. **ジオコーディング開始** ボタンを押すと処理が実行されます。  
         3. 月間リクエスト上限は **9800件** に設定されています。  
-        4. 結果は画面上に表示され、CSVダウンロードも可能です。
+        4. 結果は画面上に表示され、CSV ダウンロードも可能です。
         """
     )
     uploaded_file = st.file_uploader("CSVファイルをアップロードしてください", type=["csv"])
@@ -180,21 +156,17 @@ def main():
         file_bytes = uploaded_file.read()
         encoding = detect_encoding(file_bytes)
         df = pd.read_csv(io.StringIO(file_bytes.decode(encoding)))
-        
         st.subheader("アップロードされたデータ")
         st.dataframe(df.head())
-        
         if st.button("ジオコーディング開始"):
             with st.spinner("ジオコーディング実行中..."):
                 result_df = perform_geocoding(df)
                 st.success("ジオコーディングが完了しました。")
                 st.subheader("結果")
                 st.dataframe(result_df)
-                
                 csv = result_df.to_csv(index=False, encoding='utf-8-sig')
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"geocoded_results_{timestamp}.csv"
-                
                 st.download_button(
                     label="結果CSVをダウンロード",
                     data=csv,
