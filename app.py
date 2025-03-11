@@ -15,31 +15,6 @@ genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 # モデルの初期化（gemini-2.0-flash）
 model = genai.GenerativeModel('gemini-2.0-flash')
 
-# --- API ステータスチェック ---
-def check_google_maps_status():
-    try:
-        gmaps = googlemaps.Client(key=st.secrets["GOOGLE_MAPS_API_KEY"])
-        # 簡単なテスト：東京のジオコーディング
-        result = gmaps.geocode("Tokyo", components={'country': 'JP'})
-        if result:
-            return "Google Maps API: OK"
-        else:
-            return "Google Maps API: 応答なし"
-    except Exception as e:
-        return f"Google Maps API: エラー - {e}"
-
-def check_gemini_status():
-    try:
-        test_prompt = "以下のテストに対して、'ok'と返してください。"
-        response = model.generate_content(test_prompt)
-        text = response.text.strip() if response and hasattr(response, "text") else ""
-        if "ok" in text.lower():
-            return "Gemini API: OK"
-        else:
-            return f"Gemini API: 予期しない応答 - {text}"
-    except Exception as e:
-        return f"Gemini API: エラー - {e}"
-
 # --- リクエストカウンタの永続化 ---
 REQUEST_COUNT_FILE = "request_count.json"
 REQUEST_LIMIT = 9800
@@ -172,49 +147,7 @@ def perform_geocoding(df):
     st.write(f"現在の月間リクエスト総数: {monthly_count}件")
     return df
 
-# --- メイン処理 ---
-def main():
-    st.title("ジオコーディングアプリケーション")
-    st.markdown("**Google Maps API** と **Gemini API**（gemini-2.0-flash）を組み合わせた住所補正・ジオコーディングアプリです。")
-    st.sidebar.title("使い方・設定")
-    st.sidebar.info(
-        """
-        1. **CSVファイル** をアップロードしてください。（必ず **address** カラムが必要です）  
-        2. **ジオコーディング開始** ボタンを押すと処理が実行されます。  
-        3. 月間リクエスト上限は **9800件** に設定されています。  
-        4. 結果は画面上に表示され、CSV ダウンロードも可能です。
-        """
-    )
-    
-    # API ステータスの表示
-    google_status = check_google_maps_status()
-    gemini_status = check_gemini_status()
-    st.sidebar.markdown(f"**API ステータス**\n\n- {google_status}\n- {gemini_status}")
-
-    uploaded_file = st.file_uploader("CSVファイルをアップロードしてください", type=["csv"])
-    if uploaded_file is not None:
-        file_bytes = uploaded_file.read()
-        encoding = detect_encoding(file_bytes)
-        df = pd.read_csv(io.StringIO(file_bytes.decode(encoding)))
-        st.subheader("アップロードされたデータ")
-        st.dataframe(df.head())
-        if st.button("ジオコーディング開始"):
-            with st.spinner("ジオコーディング実行中..."):
-                result_df = perform_geocoding(df)
-                st.success("ジオコーディングが完了しました。")
-                st.subheader("結果")
-                st.dataframe(result_df)
-                # CSVのエンコーディングは utf-8-sig を使用
-                csv = result_df.to_csv(index=False, encoding='utf-8-sig')
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"geocoded_results_{timestamp}.csv"
-                st.download_button(
-                    label="結果CSVをダウンロード",
-                    data=csv,
-                    file_name=filename,
-                    mime='text/csv'
-                )
-
+# --- API ステータスチェック ---
 def check_google_maps_status():
     try:
         gmaps = googlemaps.Client(key=st.secrets["GOOGLE_MAPS_API_KEY"])
@@ -237,6 +170,55 @@ def check_gemini_status():
             return f"Gemini API: 予期しない応答 - {text}"
     except Exception as e:
         return f"Gemini API: エラー - {e}"
+
+# --- メイン処理 ---
+def main():
+    st.title("ジオコーディングアプリケーション")
+    st.markdown("**Google Maps API** と **Gemini API**（gemini-2.0-flash）を組み合わせた住所補正・ジオコーディングアプリです。")
+    st.sidebar.title("使い方・設定")
+    st.sidebar.info(
+        """
+        1. **CSVファイル** をアップロードしてください。（必ず **address** カラムが必要です）  
+        2. **ジオコーディング開始** ボタンを押すと処理が実行されます。  
+        3. 月間リクエスト上限は **9800件** に設定されています。  
+        4. 結果は画面上に表示され、CSV ダウンロードも可能です。
+        """
+    )
+    
+    # 月間合計カウントをサイドバーに表示
+    counter_data = load_request_count()
+    monthly_count = counter_data["count"]
+    st.sidebar.write(f"**現在の月間リクエスト総数: {monthly_count}件**")
+    
+    # API ステータスの表示
+    google_status = check_google_maps_status()
+    gemini_status = check_gemini_status()
+    st.sidebar.markdown(f"**API ステータス**\n- {google_status}\n- {gemini_status}")
+
+    uploaded_file = st.file_uploader("CSVファイルをアップロードしてください", type=["csv"])
+    if uploaded_file is not None:
+        file_bytes = uploaded_file.read()
+        encoding = detect_encoding(file_bytes)
+        df = pd.read_csv(io.StringIO(file_bytes.decode(encoding)))
+        st.subheader("アップロードされたデータ")
+        st.dataframe(df.head())
+        if st.button("ジオコーディング開始"):
+            with st.spinner("ジオコーディング実行中..."):
+                result_df = perform_geocoding(df)
+                st.success("ジオコーディングが完了しました。")
+                st.subheader("結果")
+                st.dataframe(result_df)
+                # CSV 出力を cp932（Shift_JIS）でエンコードし、バイト列としてダウンロード
+                csv = result_df.to_csv(index=False, encoding='cp932')
+                csv_bytes = csv.encode('cp932')
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"geocoded_results_{timestamp}.csv"
+                st.download_button(
+                    label="結果CSVをダウンロード",
+                    data=csv_bytes,
+                    file_name=filename,
+                    mime='text/csv'
+                )
 
 if __name__ == "__main__":
     main()
