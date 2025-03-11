@@ -12,8 +12,8 @@ import google.generativeai as genai
 
 # --- Gemini API の設定 ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-# モデルの初期化（※ 利用可能なモデル名を公式ドキュメントで確認してください）
-model = genai.GenerativeModel('gemini-pro')
+# モデルの初期化（gemini-2.0-flash）
+model = genai.GenerativeModel('gemini-2.0-flash')
 
 # --- リクエストカウンタの永続化 ---
 REQUEST_COUNT_FILE = "request_count.json"
@@ -146,7 +146,7 @@ def perform_geocoding(df):
 # --- メイン処理 ---
 def main():
     st.title("ジオコーディングアプリケーション")
-    st.markdown("**Google Maps API** と **Gemini API** を組み合わせた住所補正・ジオコーディングアプリです。")
+    st.markdown("**Google Maps API** と **Gemini API**（gemini-2.0-flash）を組み合わせた住所補正・ジオコーディングアプリです。")
     st.sidebar.title("使い方・設定")
     st.sidebar.info(
         """
@@ -169,10 +169,12 @@ def main():
                 st.success("ジオコーディングが完了しました。")
                 st.subheader("結果")
                 st.dataframe(result_df)
-                # 出力CSVのエンコーディングは utf-8-sig を使用
-                csv = result_df.to_csv(index=False, encoding='utf-8-sig')
+
+                # CSVのエンコーディングをcp932（Shift_JIS）に設定
+                csv = result_df.to_csv(index=False, encoding='cp932')
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"geocoded_results_{timestamp}.csv"
+
                 st.download_button(
                     label="結果CSVをダウンロード",
                     data=csv,
@@ -181,4 +183,4 @@ def main():
                 )
 
 if __name__ == "__main__":
-    main()
+  
