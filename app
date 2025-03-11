@@ -7,9 +7,15 @@ import googlemaps
 from googlemaps.exceptions import ApiError, HTTPError, Timeout, TransportError
 import chardet  # chardetをインポート
 
-# Gemini APIを利用するためのインポートとクライアント初期化
-from google import genai
-gemini_client = genai.Client(api_key="YOUR_GEMINI_API_KEY")
+# Gemini API (Google Generative AI) の利用準備
+try:
+    import google.generativeai as genai
+except ImportError as e:
+    print("google-generativeaiライブラリが見つかりません。'pip install google-generativeai'を実行してください。")
+    raise e
+
+# APIキーを設定（実際のキーに置き換えてください）
+genai.configure(api_key="YOUR_GEMINI_API_KEY")
 
 def select_input_file():
     file_path.set(filedialog.askopenfilename())
@@ -28,11 +34,15 @@ def correct_address_with_gemini(address):
     """
     prompt = f"以下の住所を正確な住所フォーマットに修正してください: {address}"
     try:
-        response = gemini_client.models.generate_content(
+        response = genai.models.generate_content(
             model="gemini-2.0-flash", 
             contents=prompt
         )
-        corrected = response.text.strip()
+        # response に text 属性があるかどうかを確認
+        if hasattr(response, "text"):
+            corrected = response.text.strip()
+        else:
+            corrected = response.get("text", "").strip()
         # 補正結果が得られなかった場合は元の住所を返す
         return corrected if corrected else address
     except Exception as e:
