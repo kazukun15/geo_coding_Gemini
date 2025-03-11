@@ -1,0 +1,5 @@
+# Secretsなどのファイルはコミットしない
+.streamlit/secrets.toml
+request_count.json
+__pycache__/
+*.pyc
