@@ -12,7 +12,7 @@ import google.generativeai as genai
 
 # --- Gemini API の設定 ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-# モデルの初期化（例: gemini-pro）
+# モデルの初期化（※ 利用可能なモデル名を公式ドキュメントで確認してください）
 model = genai.GenerativeModel('gemini-pro')
 
 # --- リクエストカウンタの永続化 ---
@@ -169,8 +169,8 @@ def main():
                 st.success("ジオコーディングが完了しました。")
                 st.subheader("結果")
                 st.dataframe(result_df)
-                # 出力CSVのエンコーディングを cp932（Shift_JIS）に変更
-                csv = result_df.to_csv(index=False, encoding='cp932')
+                # 出力CSVのエンコーディングは utf-8-sig を使用
+                csv = result_df.to_csv(index=False, encoding='utf-8-sig')
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"geocoded_results_{timestamp}.csv"
                 st.download_button(
