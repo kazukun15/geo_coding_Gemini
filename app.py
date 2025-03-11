@@ -73,6 +73,10 @@ def refine_coordinates(model, original_address, corrected_address, current_lat, 
         else:
             st.warning("Gemini からの応答に期待するキーがありません。")
             return current_lat, current_lng
+    except json.JSONDecodeError as e:
+        st.error(f"Gemini API 座標精度向上エラー (JSON 解析失敗): {e}")
+        st.error(f"Gemini API 応答: {text}")
+        return current_lat, current_lng
     except Exception as e:
         st.error(f"Gemini API 座標精度向上エラー: {e}")
         return current_lat, current_lng
@@ -169,12 +173,10 @@ def main():
                 st.success("ジオコーディングが完了しました。")
                 st.subheader("結果")
                 st.dataframe(result_df)
-
-                # CSVのエンコーディングをcp932（Shift_JIS）に設定
-                csv = result_df.to_csv(index=False, encoding='cp932')
+                # CSVのエンコーディングは utf-8-sig で出力
+                csv = result_df.to_csv(index=False, encoding='utf-8-sig')
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"geocoded_results_{timestamp}.csv"
-
                 st.download_button(
                     label="結果CSVをダウンロード",
                     data=csv,
