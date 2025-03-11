@@ -24,7 +24,7 @@ def load_request_count():
     current_month = datetime.now().strftime("%Y-%m")
     if os.path.exists(REQUEST_COUNT_FILE):
         try:
-            with open(REQUEST_COUNT_FILE, "r") as f:
+            with open(REQUEST_COUNT_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if data.get("month") != current_month:
                 data = {"month": current_month, "count": 0}
@@ -36,10 +36,10 @@ def load_request_count():
 
 def save_request_count(data):
     """ローカルファイルに月間リクエスト数を保存する"""
-    with open(REQUEST_COUNT_FILE, "w") as f:
+    with open(REQUEST_COUNT_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
-# --- ファイルアップロード・エンコーディング検出 ---
+# --- ファイルアップロード時のエンコーディング検出 ---
 def detect_encoding(file_bytes):
     result = chardet.detect(file_bytes[:100000])
     return result['encoding']
@@ -169,7 +169,8 @@ def main():
                 st.success("ジオコーディングが完了しました。")
                 st.subheader("結果")
                 st.dataframe(result_df)
-                csv = result_df.to_csv(index=False, encoding='utf-8-sig')
+                # 出力CSVのエンコーディングを cp932（Shift_JIS）に変更
+                csv = result_df.to_csv(index=False, encoding='cp932')
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"geocoded_results_{timestamp}.csv"
                 st.download_button(
