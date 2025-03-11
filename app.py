@@ -12,7 +12,7 @@ import google.generativeai as genai
 
 # --- Gemini API の設定 ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-# モデルの初期化（gemini-2.0-flash を使用）
+# モデルの初期化（gemini-2.0-flash を利用）
 model = genai.GenerativeModel('gemini-2.0-flash')
 
 # --- リクエストカウンタの永続化 ---
@@ -44,7 +44,7 @@ def detect_encoding(file_bytes):
     result = chardet.detect(file_bytes[:100000])
     return result['encoding']
 
-# --- Gemini API による住所正規化（補正） ---
+# --- Gemini API による住所補正 ---
 def correct_address_with_gemini(model, address):
     prompt = f"以下の住所を正確な住所フォーマットに修正してください: {address}"
     try:
@@ -52,8 +52,12 @@ def correct_address_with_gemini(model, address):
         corrected = response.text.strip() if response and hasattr(response, "text") else ""
         return corrected if corrected else address
     except Exception as e:
-        st.error(f"Gemini API 補正エラー: {e}")
-        return address
+        # 429 エラーの場合はエラーメッセージを表示せずに元の住所を返す
+        if "429" in str(e):
+            return address
+        else:
+            st.error(f"Gemini API 補正エラー: {e}")
+            return address
 
 # --- Gemini API による座標精度向上 ---
 def refine_coordinates(model, original_address, corrected_address, current_lat, current_lng):
@@ -73,13 +77,15 @@ def refine_coordinates(model, original_address, corrected_address, current_lat, 
         else:
             st.warning("Gemini からの応答に期待するキーがありません。")
             return current_lat, current_lng
-    except json.JSONDecodeError as e:
-        st.error(f"Gemini API 座標精度向上エラー (JSON 解析失敗): {e}")
-        st.error(f"Gemini API 応答: {text}")
+    except json.JSONDecodeError:
+        # JSON解析エラーの場合は何も表示せず、元の座標を返す
         return current_lat, current_lng
     except Exception as e:
-        st.error(f"Gemini API 座標精度向上エラー: {e}")
-        return current_lat, current_lng
+        if "429" in str(e):
+            return current_lat, current_lng
+        else:
+            st.error(f"Gemini API 座標精度向上エラー: {e}")
+            return current_lat, current_lng
 
 # --- Google Maps API を用いたジオコーディング ---
 def geocode_address(gmaps, address):
@@ -112,7 +118,7 @@ def perform_geocoding(df, input_col):
             break
 
         original_address = row[input_col]
-        # 住所の正規化
+        # 住所をGeminiで正規化
         normalized_address = correct_address_with_gemini(model, original_address)
         status_text.text(f"処理中: {index+1}/{total} 件 - {original_address} → {normalized_address}")
 
@@ -130,7 +136,7 @@ def perform_geocoding(df, input_col):
                 location = geocode_result[0]['geometry']['location']
             current_lat = location['lat']
             current_lng = location['lng']
-            # 座標の精度向上（補正）
+            # 取得した座標をさらにGeminiで補正
             refined_lat, refined_lng = refine_coordinates(model, original_address, normalized_address, current_lat, current_lng)
             df.at[index, 'latitude'] = refined_lat
             df.at[index, 'longitude'] = refined_lng
@@ -181,7 +187,7 @@ def main():
     st.sidebar.title("使い方・設定")
     st.sidebar.info(
         """
-        1. **CSVファイル** をアップロードしてください。（必ず **address** または **住所** カラムが必要です）  
+        1. **CSVファイル** をアップロードしてください。（必ず **住所** または **address** カラムが必要です）  
         2. **ジオコーディング開始** ボタンを押すと処理が実行されます。  
         3. 月間リクエスト上限は **9800件** に設定されています。  
         4. 結果は画面上に表示されます。
