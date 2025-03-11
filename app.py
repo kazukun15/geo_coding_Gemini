@@ -39,7 +39,7 @@ def save_request_count(data):
     with open(REQUEST_COUNT_FILE, "w") as f:
         json.dump(data, f)
 
-# --- ファイルアップロード時のエンコーディング検出 ---
+# --- ファイルアップロード・エンコーディング検出 ---
 def detect_encoding(file_bytes):
     result = chardet.detect(file_bytes[:100000])
     return result['encoding']
@@ -51,9 +51,6 @@ def correct_address_with_gemini(model, address):
         response = model.generate_content(prompt)
         corrected = response.text.strip() if response and hasattr(response, "text") else ""
         return corrected if corrected else address
-    except genai.types.generation_types.GenerateContentError as e:
-        st.error(f"Gemini API 補正エラー: {e.message}")
-        return address
     except Exception as e:
         st.error(f"Gemini API 補正エラー: {e}")
         return address
@@ -76,9 +73,6 @@ def refine_coordinates(model, original_address, corrected_address, current_lat, 
         else:
             st.warning("Gemini からの応答に期待するキーがありません。")
             return current_lat, current_lng
-    except genai.types.generation_types.GenerateContentError as e:
-        st.error(f"Gemini API 座標精度向上エラー: {e.message}")
-        return current_lat, current_lng
     except Exception as e:
         st.error(f"Gemini API 座標精度向上エラー: {e}")
         return current_lat, current_lng
@@ -104,7 +98,6 @@ def perform_geocoding(df):
     counter_data = load_request_count()
     monthly_count = counter_data["count"]
 
-    # 成功/失敗のカウントと処理時間計測
     success_count = 0
     fail_count = 0
     start_time = time.time()
