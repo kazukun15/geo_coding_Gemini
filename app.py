@@ -52,7 +52,7 @@ def correct_address_with_gemini(model, address):
         corrected = response.text.strip() if response and hasattr(response, "text") else ""
         return corrected if corrected else address
     except Exception as e:
-        # 429 エラーの場合はエラーメッセージを表示せずに元の住所を返す
+        # 429エラーの場合は表示せずに元の住所を返す
         if "429" in str(e):
             return address
         else:
@@ -78,7 +78,6 @@ def refine_coordinates(model, original_address, corrected_address, current_lat, 
             st.warning("Gemini からの応答に期待するキーがありません。")
             return current_lat, current_lng
     except json.JSONDecodeError:
-        # JSON解析エラーの場合は何も表示せず、元の座標を返す
         return current_lat, current_lng
     except Exception as e:
         if "429" in str(e):
@@ -118,11 +117,11 @@ def perform_geocoding(df, input_col):
             break
 
         original_address = row[input_col]
-        # 住所をGeminiで正規化
+        # 住所の正規化
         normalized_address = correct_address_with_gemini(model, original_address)
         status_text.text(f"処理中: {index+1}/{total} 件 - {original_address} → {normalized_address}")
 
-        # 正規化した住所を用いてジオコーディング
+        # 正規化した住所でジオコーディング
         geocode_result = geocode_address(gmaps, normalized_address)
         monthly_count += 1
         counter_data["count"] = monthly_count
@@ -180,6 +179,15 @@ def check_gemini_status():
     except Exception as e:
         return f"Gemini API: エラー - {e}"
 
+# --- スピーカ配置（地図表示） ---
+def display_speakers(df):
+    """DataFrame に含まれる緯度・経度情報から地図上にスピーカ（マーカー）を配置する"""
+    if "latitude" in df.columns and "longitude" in df.columns:
+        # st.map は DataFrame の 'latitude', 'longitude' カラムを自動で利用して地図を表示します
+        st.map(df[['latitude', 'longitude']])
+    else:
+        st.error("緯度と経度の情報がありません。")
+
 # --- メイン処理 ---
 def main():
     st.title("ジオコーディングアプリケーション")
@@ -190,7 +198,8 @@ def main():
         1. **CSVファイル** をアップロードしてください。（必ず **住所** または **address** カラムが必要です）  
         2. **ジオコーディング開始** ボタンを押すと処理が実行されます。  
         3. 月間リクエスト上限は **9800件** に設定されています。  
-        4. 結果は画面上に表示されます。
+        4. 結果は画面上に表示されます。  
+        5. **スピーカを配置** ボタンで、取得した位置情報を地図上に表示します。
         """
     )
     
@@ -226,6 +235,10 @@ def main():
                 st.success("ジオコーディングが完了しました。")
                 st.subheader("結果")
                 st.dataframe(result_df)
+        
+        # スピーカ配置ボタンを追加
+        if st.button("スピーカを配置"):
+            display_speakers(df)
 
 if __name__ == "__main__":
     main()
