@@ -1,9 +1,5 @@
 streamlit
-folium
-streamlit-folium
-numpy
 pandas
-branca
-requests
-rasterio
-GDAL
+googlemaps
+chardet
+google-generativeai
